@@ -1,3 +1,7 @@
+-- ═══════════════════════════════════════════════════════════
+--  GITHUB GIST AUTH SYSTEM + WEBHOOK LOGGING
+-- ═══════════════════════════════════════════════════════════
+
 local AUTH_URL = "https://gist.githubusercontent.com/buildfoundations/7e6ef07d9787c4b16842caf268fc5330/raw/semitp"
 local WEBHOOK_URL = "https://discord.com/api/webhooks/1475252984475816178/FkyihYqW1uEYLhbpowJ5f85vanb54NQ2xyL4xKuMibJA8mvVzNNnEU1E8Z2eZrbAJJfV"
 local Players = game:GetService("Players")
@@ -90,11 +94,7 @@ local function checkAuth()
    
     if not success then
         warn("❌ Failed to fetch whitelist!")
-        player:Kick("\
-🔒 SF Hub - Auth Error\
-\
-Could not connect to auth server.\
-Please try again later.")
+        player:Kick("\n🔒 SF Hub - Auth Error\n\nCould not connect to auth server.\nPlease try again later.")
         return false
     end
    
@@ -105,10 +105,7 @@ Please try again later.")
    
     if not ok then
         warn("❌ Failed to parse whitelist!")
-        player:Kick("\
-🔒 SF Hub - Auth Error\
-\
-Invalid auth data format.")
+        player:Kick("\n🔒 SF Hub - Auth Error\n\nInvalid auth data format.")
         return false
     end
    
@@ -121,11 +118,7 @@ Invalid auth data format.")
    
     -- Check whitelist
     if not data.WhitelistedUsers then
-        player:Kick("\
-🔒 SF Hub - Not Whitelisted\
-\
-Your username is not on the whitelist.\
-Contact support: discord.gg/PTXPzbmvyA")
+        player:Kick("\n🔒 SF Hub - Not Whitelisted\n\nYour username is not on the whitelist.\nContact support: discord.gg/PTXPzbmvyA")
         return false
     end
    
@@ -133,13 +126,7 @@ Contact support: discord.gg/PTXPzbmvyA")
     local access = data.WhitelistedUsers[username]
    
     if not access then
-        player:Kick("\
-🔒 SF Hub - Not Whitelisted\
-\
-Username: " .. username .. "\
-\
-You are not on the whitelist.\
-Contact support: discord.gg/PTXPzbmvyA")
+        player:Kick("\n🔒 SF Hub - Not Whitelisted\n\nUsername: " .. username .. "\n\nYou are not on the whitelist.\nContact support: discord.gg/PTXPzbmvyA")
         return false
     end
    
@@ -154,10 +141,7 @@ Contact support: discord.gg/PTXPzbmvyA")
     local expiryTimestamp = parseDate(access)
     if not expiryTimestamp then
         warn("❌ Invalid date format for user: " .. username)
-        player:Kick("\
-🔒 SF Hub - Invalid Access Date\
-\
-Please contact support.")
+        player:Kick("\n🔒 SF Hub - Invalid Access Date\n\nPlease contact support.")
         return false
     end
    
@@ -165,12 +149,7 @@ Please contact support.")
    
     if currentTime > expiryTimestamp then
         -- Expired
-        player:Kick("\
-🔒 SF Hub - Access Expired\
-\
-Your access expired on: " .. access .. "\
-\
-Contact support to renew: discord.gg/PTXPzbmvyA")
+        player:Kick("\n🔒 SF Hub - Access Expired\n\nYour access expired on: " .. access .. "\n\nContact support to renew: discord.gg/PTXPzbmvyA")
         return false
     else
         -- Valid access
