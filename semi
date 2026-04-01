@@ -1,0 +1,2056 @@
+-- ═══════════════════════════════════════════════════════════
+--  GITHUB GIST AUTH SYSTEM + WEBHOOK LOGGING
+-- ═══════════════════════════════════════════════════════════
+
+local AUTH_URL = "https://gist.githubusercontent.com/buildfoundations/7e6ef07d9787c4b16842caf268fc5330/raw/fd40232adf93da55cde817a6611229494a027ec8/semitp"
+local WEBHOOK_URL = "https://discord.com/api/webhooks/1475252984475816178/FkyihYqW1uEYLhbpowJ5f85vanb54NQ2xyL4xKuMibJA8mvVzNNnEU1E8Z2eZrbAJJfV"
+local Players = game:GetService("Players")
+local HttpService = game:GetService("HttpService")
+local player = Players.LocalPlayer
+
+local function parseDate(dateStr)
+    -- Parse YYYY-MM-DD format
+    local year, month, day = dateStr:match("(%d+)-(%d+)-(%d+)")
+    if not year then return nil end
+    return os.time({year = tonumber(year), month = tonumber(month), day = tonumber(day), hour = 0, min = 0, sec = 0})
+end
+
+local function sendWebhookLog(accessType, expiryInfo)
+    task.spawn(function()
+        pcall(function()
+            local request = (syn and syn.request) or (http and http.request) or http_request or (fluxus and fluxus.request) or request
+            if not request then return end
+           
+            local accountAge = player.AccountAge
+            local daysText = accountAge == 1 and "day" or "days"
+           
+            local embed = {
+                title = "✅ SF Hub Semi - User Login",
+                color = accessType == "perm" and 3066993 or 15844367, -- Green for perm, Gold for temp
+                fields = {
+                    {
+                        name = "👤 Username",
+                        value = "`" .. player.Name .. "`",
+                        inline = true
+                    },
+                    {
+                        name = "🎭 Display Name",
+                        value = "`" .. player.DisplayName .. "`",
+                        inline = true
+                    },
+                    {
+                        name = "🆔 User ID",
+                        value = "`" .. tostring(player.UserId) .. "`",
+                        inline = true
+                    },
+                    {
+                        name = "🔑 Access Type",
+                        value = accessType == "perm" and "**Permanent**" or "**Temporary**",
+                        inline = true
+                    },
+                    {
+                        name = "⏰ Expiry",
+                        value = expiryInfo or "Never",
+                        inline = true
+                    },
+                    {
+                        name = "📅 Account Age",
+                        value = accountAge .. " " .. daysText,
+                        inline = true
+                    },
+                    {
+                        name = "🎮 Game",
+                        value = game:GetService("MarketplaceService"):GetProductInfo(game.PlaceId).Name,
+                        inline = false
+                    }
+                },
+                footer = {
+                    text = "SF Hub Semi • " .. os.date("%Y-%m-%d %H:%M:%S")
+                },
+                timestamp = os.date("!%Y-%m-%dT%H:%M:%S")
+            }
+           
+            request({
+                Url = WEBHOOK_URL,
+                Method = "POST",
+                Headers = {["Content-Type"] = "application/json"},
+                Body = HttpService:JSONEncode({
+                    username = "SF Hub Auth",
+                    avatar_url = "https://cdn.discordapp.com/attachments/1234567890/shield_icon.png",
+                    embeds = {embed}
+                })
+            })
+        end)
+    end)
+end
+
+local function checkAuth()
+    print("🔐 Checking authentication...")
+   
+    -- Fetch whitelist from Gist
+    local success, response = pcall(function()
+        return game:HttpGet(AUTH_URL)
+    end)
+   
+    if not success then
+        warn("❌ Failed to fetch whitelist!")
+        player:Kick("\n🔒 SF Hub - Auth Error\n\nCould not connect to auth server.\nPlease try again later.")
+        return false
+    end
+   
+    -- Parse JSON
+    local ok, data = pcall(function()
+        return HttpService:JSONDecode(response)
+    end)
+   
+    if not ok then
+        warn("❌ Failed to parse whitelist!")
+        player:Kick("\n🔒 SF Hub - Auth Error\n\nInvalid auth data format.")
+        return false
+    end
+   
+    -- Check FreeForAll
+    if data.FreeForAll == true then
+        print("✅ Free for all mode - access granted!")
+        sendWebhookLog("ffa", "Free For All Mode")
+        return true
+    end
+   
+    -- Check whitelist
+    if not data.WhitelistedUsers then
+        player:Kick("\n🔒 SF Hub - Not Whitelisted\n\nYour username is not on the whitelist.\nContact support: discord.gg/PTXPzbmvyA")
+        return false
+    end
+   
+    local username = player.Name
+    local access = data.WhitelistedUsers[username]
+   
+    if not access then
+        player:Kick("\n🔒 SF Hub - Not Whitelisted\n\nUsername: " .. username .. "\n\nYou are not on the whitelist.\nContact support: discord.gg/PTXPzbmvyA")
+        return false
+    end
+   
+    -- Check if permanent
+    if access == "perm" then
+        print("✅ Permanent access granted for: " .. username)
+        sendWebhookLog("perm", "Permanent")
+        return true
+    end
+   
+    -- Check expiry date
+    local expiryTimestamp = parseDate(access)
+    if not expiryTimestamp then
+        warn("❌ Invalid date format for user: " .. username)
+        player:Kick("\n🔒 SF Hub - Invalid Access Date\n\nPlease contact support.")
+        return false
+    end
+   
+    local currentTime = os.time()
+   
+    if currentTime > expiryTimestamp then
+        -- Expired
+        player:Kick("\n🔒 SF Hub - Access Expired\n\nYour access expired on: " .. access .. "\n\nContact support to renew: discord.gg/PTXPzbmvyA")
+        return false
+    else
+        -- Valid access
+        local daysLeft = math.floor((expiryTimestamp - currentTime) / 86400)
+        print("✅ Access granted for: " .. username .. " (Expires: " .. access .. ", " .. daysLeft .. " days left)")
+        sendWebhookLog("temp", access .. " (" .. daysLeft .. " days left)")
+        return true
+    end
+end
+
+-- Run auth check
+if not checkAuth() then
+    return -- Stop script execution if not authenticated
+end
+
+print("✅ Authentication successful - Loading SF Hub Semi...")
+
+-- ═══════════════════════════════════════════════════════════
+--  MAIN SCRIPT STARTS HERE
+-- ═══════════════════════════════════════════════════════════
+
+local UserInputService = game:GetService("UserInputService")
+local Players = game:GetService("Players")
+local player = Players.LocalPlayer
+local ProximityPromptService = game:GetService("ProximityPromptService")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local ContextActionService = game:GetService("ContextActionService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local HttpService = game:GetService("HttpService")
+
+print("✅ SF Hub Semi - Access verified! Loading script...")
+
+
+local AnimalsData = require(ReplicatedStorage:WaitForChild("Datas"):WaitForChild("Animals"))
+local AnimsModule = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Animals"))
+
+
+
+-- Anti-kick reset system
+local blacklistedNames = {
+"PlaceCooldownFromChat","AdminPanelService","AdminPanel","IntegrityCheckProcessor",
+"LocalizationTableAnalyticsSender","LocalizationService","Analytics","Telemetry",
+"Logger","Reporter","CanChatWith","SetPlayerBlockList","UpdatePlayerBlockList",
+"NewPlayerGroupDetails","NewPlayerCanManageDetails","SendPlayerBlockList",
+"UpdateLocalPlayerBlockList","SendPlayerProfileSettings","RequestPlayerProfileSettings",
+"UpdatePlayerProfileSettings","ShowFriendJoinedPlayerToast","ShowPlayerJoinedFriendsToast",
+"CreateOrJoinParty","ServerSideBulkPurchaseEvent","SetDialogInUse",
+"ContactListInvokeIrisInvite","ContactListIrisInviteTeleport","UpdateCurrentCall",
+"RequestDeviceCameraOrientationCapability","ReceiveLikelySpeakingUsers","ReferredPlayerJoin",
+"Update","RE/Tools/Cooldown","RE/FuseMachine/RevealNow","RE/FuseMachine/FuseAnimation",
+"RE/NotificationService/Notify","RE/PlotService/ClaimCoins","RE/PlotService/Sell",
+"RE/PlotService/Open","RE/PlotService/ToggleFriends","RE/PlotService/CashCollected",
+"RE/ChatService/ChatMessage","RE/SoundService/PlayClientSound","RE/Snapshot/RealiableChannel",
+"RE/CommandsService/OpenCommandBar","RE/92e5a494-0ab4-4c4e-ae6b-96e5f4a2a698",
+"92e5a494-0ab4-4c4e-ae6b-96e5f4a2a698","6411a778-07a5-4513-b1c7-60b65ae05ac8",
+"RE/GameService/SpawnEffect","RE/Leaderboard/ReplicateDisplayNames",
+"eb9dee81-7718-4020-b6b2-219888488d13","fce51e06-a587-4ff0-9e19-869eb1859a01",
+"680db8c7-c46a-492c-b451-6e980910902c","RE/StealService/Grab","RE/PlotService/Place",
+"RE/StealService/StealingSuccess","RE/StealService/StealingFailure","RE/CombatService/ApplyImpulse",
+"RE/InventoryService/Sort","RE/StockEventService/SetFocused","RE/StockEventService/Return",
+"RE/StockEventService/Redeem","RE/MerchantService/SetFocused","RE/MerchantService/Animation",
+"RE/SantaMerchantService/SetFocused","RE/SantaMerchantService/Animation",
+"RE/SantaMerchantService/CollectGoldElf","RE/ShopService/Purchase","RE/TutorialService/StartTutorial",
+"RE/TutorialService/FinishTutorial","RE/TeleportService/Reconnect","RobloxChatSystemMessage",
+"BadgeService.AFK","AFK"
+}
+
+local spamRemotes = {}
+local payload = string.rep("X", 768)
+local blacklistSet = {}
+for _, v in ipairs(blacklistedNames) do blacklistSet[v] = true end
+local spamming = false
+
+local function isBlacklisted(fullName, name)
+if #name ~= 67 then return true end
+for bl, _ in pairs(blacklistSet) do
+if fullName:find(bl, 1, true) or name:find(bl, 1, true) then return true end
+end
+return false
+end
+
+local function findRemotes()
+local found = {}
+local desc = game:GetDescendants()
+local chunkSize = 2000
+for i = 1, #desc, chunkSize do
+for j = i, math.min(i + chunkSize - 1, #desc) do
+local v = desc[j]
+if v:IsA("RemoteEvent") then
+local fn = v:GetFullName()
+local n = v.Name
+if not isBlacklisted(fn, n) then table.insert(found, v) end
+end
+end
+task.wait()
+end
+spamRemotes = {}
+for i = 1, math.min(5, #found) do spamRemotes[i] = found[i] end
+task.spawn(function()
+local Packages = ReplicatedStorage:FindFirstChild("Packages")
+if Packages then
+local Net = Packages:FindFirstChild("Net")
+if Net then
+for _, obj in pairs(Net:GetChildren()) do
+if obj:IsA("RemoteEvent") and obj.Name:lower():find("352aad5") then
+if #spamRemotes < 5 then table.insert(spamRemotes, obj) end
+break
+end
+end
+end
+end
+end)
+end
+
+local function fireSpamRemotes()
+if #spamRemotes == 0 then return end
+spamming = true
+local char = player.Character
+if not char or not char.Parent then spamming = false return end
+local hum = char:FindFirstChild("Humanoid")
+if not hum then spamming = false return end
+hum.Died:Once(function() spamming = false end)
+while spamming do
+for _, remote in ipairs(spamRemotes) do
+if not spamming then break end
+pcall(function() remote:FireServer("d80e2217-36b8-4bdc-9a46-2281c6f70b28", payload) end)
+end
+task.wait(0.5)
+end
+end
+
+local function stopSpam()
+spamming = false
+end
+
+player.CharacterAdded:Connect(stopSpam)
+task.spawn(findRemotes)
+
+-- ═══════════════════════════════════════════════════════════
+--  ADMIN REMOTE FINDER
+-- ═══════════════════════════════════════════════════════════
+
+
+local plotKey = "f888ee6e-c86d-46e1-93d7-0639d6635d42"
+local adminRemote = nil
+
+
+local function findAdminRemote()
+print("🔍 Searching for admin remote via GC...")
+local foundRemote, foundUUID = nil, nil
+local gc = getgc(true)
+for _, v in ipairs(gc) do
+if type(v) == "function" then
+local ok, name = pcall(debug.info, v, "n")
+if ok and name == "ExecuteCommand" then
+local ok2, consts = pcall(getconstants, v)
+if ok2 then
+for _, c in pairs(consts) do
+if type(c) == "string" and c:match("^%x+%-%x+%-%x+%-%x+%-%x+$") then
+foundUUID = c break
+end
+end
+end
+local ok3, uvs = pcall(debug.getupvalues, v)
+if ok3 then
+for _, uv in pairs(uvs) do
+if typeof(uv) == "Instance" and (uv:IsA("RemoteFunction") or uv:IsA("RemoteEvent")) then
+foundRemote = uv break
+end
+end
+end
+end
+if foundRemote and foundUUID then break end
+end
+end
+-- METHOD 2: Anchor fallback (works on all executors)
+if not foundRemote then
+print("⚠️ GC failed, trying anchor fallback...")
+local ok, Net = pcall(function()
+return ReplicatedStorage:WaitForChild("Packages", 5):WaitForChild("Net", 5)
+end)
+if ok and Net then
+local byName, byIdx = {}, {}
+for i, obj in ipairs(Net:GetChildren()) do
+byName[obj.Name] = i
+byIdx[i] = obj
+end
+local anchorIdx = byName["RF/a0e78691-cb9b-4efc-ac08-9c06fea70059"]
+if anchorIdx then
+local target = byIdx[anchorIdx + 1]
+if target and target:IsA("RemoteFunction") then
+foundRemote = target
+foundUUID = plotKey
+print("✅ Admin remote found via anchor fallback")
+end
+end
+end
+end
+
+if foundRemote and foundUUID then
+print("✅ Admin Remote Found:", foundRemote.Name:sub(1, 30))
+print("✅ UUID Found:", foundUUID)
+adminRemote = foundRemote
+plotKey = foundUUID
+return true
+else
+warn("❌ Admin remote not found (GC + anchor both failed)")
+return false
+end
+end
+
+
+task.spawn(function()
+for attempt = 1, 10 do
+task.wait(2)
+if findAdminRemote() then break end
+warn("Retrying GC scan... attempt " .. attempt)
+end
+end)
+
+
+-- ═══════════════════════════════════════════════════════════
+--  STATE
+-- ═══════════════════════════════════════════════════════════
+
+
+local SCRIPT_ID = "TeleportSystem_" .. tostring(math.random(10000, 99999))
+local isEnabled = false
+local giantPotionEnabled = false
+local speedBoostEnabled = false
+local apSpamOnStealEnabled = false
+local apSpamCommands = {
+rocket = true, ragdoll = false, balloon = true, inverse = false,
+nightvision = false, jail = false, control = false, tiny = false,
+jumpscare = true, morph = false
+}
+local autoResetOnBalloon = false
+local balloonDebounce = false
+local normalSpeed = 30
+local giantSpeed = 34
+local currentBeam = nil
+local targetPart = nil
+local currentTargetIndex = 1
+local beamUpdateConnection = nil
+local proximityConnection = nil
+local speedConnection = nil
+local autoTpOnUnlockEnabled = false
+local tpBrainrotKeybind = Enum.KeyCode.F
+local isSettingKeybind = false
+local keybindDisplayText = "F"
+local lastKeybindSetTime = 0
+local keybindCooldown = 0.5
+local autoWalkEnabled = false
+-- Friend status tracking
+local tpOnFriendsAllowEnabled = false
+local CLOSED_ID = "rbxassetid://110783679426495"
+local OPENED_ID = "rbxassetid://110507824065923"
+local plotStates = {}
+local lastFriendTpTime = 0
+local friendTpCooldown = 3
+
+
+local locations = {
+Vector3.new(-348, -7, 77),
+Vector3.new(-348, -7, 48),
+Vector3.new(-470, -7, 77),
+Vector3.new(-470, -7, 48)
+}
+
+
+for _, beam in pairs(workspace:GetChildren()) do
+if beam:IsA("Beam") and beam.Name == SCRIPT_ID then beam:Destroy() end
+end
+for _, part in pairs(workspace:GetChildren()) do
+if part:IsA("Part") and part.Name == SCRIPT_ID then part:Destroy() end
+end
+
+
+local PlayerGui = player:WaitForChild("PlayerGui")
+for _, name in ipairs({"uctHUB_Halfway", "SF_Hub_Semi"}) do
+local old = PlayerGui:FindFirstChild(name)
+if old then old:Destroy() end
+end
+
+
+-- ═══════════════════════════════════════════════════════════
+--  CONFIG SAVE / LOAD
+-- ═══════════════════════════════════════════════════════════
+
+
+local function saveConfig()
+pcall(function()
+if writefile then
+writefile("SF_Semi_Config.json", HttpService:JSONEncode({
+giantPotionEnabled  = giantPotionEnabled,
+apSpamOnStealEnabled = apSpamOnStealEnabled,
+apSpamCommands      = apSpamCommands,
+autoResetOnBalloon  = autoResetOnBalloon,
+speedBoostEnabled   = speedBoostEnabled,
+autoTpOnUnlockEnabled    = autoTpOnUnlockEnabled,
+tpOnFriendsAllowEnabled = tpOnFriendsAllowEnabled,
+autoWalkEnabled = autoWalkEnabled,
+normalSpeed         = normalSpeed,
+giantSpeed          = giantSpeed,
+}))
+end
+end)
+end
+
+
+local function loadConfig()
+pcall(function()
+if isfile and isfile("SF_Semi_Config.json") then
+local data = HttpService:JSONDecode(readfile("SF_Semi_Config.json"))
+if data.giantPotionEnabled  ~= nil then giantPotionEnabled  = data.giantPotionEnabled  end
+if data.apSpamOnStealEnabled ~= nil then apSpamOnStealEnabled = data.apSpamOnStealEnabled end
+if data.apSpamCommands ~= nil then
+for k, v in pairs(data.apSpamCommands) do apSpamCommands[k] = v end
+end
+if data.autoResetOnBalloon  ~= nil then autoResetOnBalloon  = data.autoResetOnBalloon  end
+if data.speedBoostEnabled   ~= nil then speedBoostEnabled   = data.speedBoostEnabled   end
+if data.tpOnFriendsAllowEnabled ~= nil then tpOnFriendsAllowEnabled = data.tpOnFriendsAllowEnabled end
+if data.autoTpOnUnlockEnabled    ~= nil then autoTpOnUnlockEnabled    = data.autoTpOnUnlockEnabled    end
+if data.autoWalkEnabled ~= nil then autoWalkEnabled = data.autoWalkEnabled end
+if data.normalSpeed         then normalSpeed = data.normalSpeed end
+if data.giantSpeed          then giantSpeed  = data.giantSpeed  end
+end
+end)
+end
+
+
+local function saveSpeedSettings()
+saveConfig()
+end
+
+
+local function loadSpeedSettings()
+-- handled by loadConfig
+end
+
+
+local function executeinsta_reset()
+    task.spawn(fireSpamRemotes)
+end
+
+
+-- ═══════════════════════════════════════════════════════════
+--  BALLOON SCREEN SCANNER
+-- ═══════════════════════════════════════════════════════════
+
+
+if not WYNF_NO_VIRTUALIZE then WYNF_NO_VIRTUALIZE = function(fn) return fn end end
+task.spawn(WYNF_NO_VIRTUALIZE(function()
+while task.wait(0.1) do
+if autoResetOnBalloon and not balloonDebounce then
+for _, gui in pairs(PlayerGui:GetChildren()) do
+local ok, desc = pcall(function() return gui:GetDescendants() end)
+if not ok then continue end
+for _, obj in pairs(desc) do
+if (obj:IsA("TextLabel") or obj:IsA("TextButton")) and obj.Visible then
+local text = obj.Text
+if type(text) == "string" then
+local lower = text:lower()
+if lower:find("balloon") and lower:find("ran") then
+    balloonDebounce = true
+    task.spawn(fireSpamRemotes)
+    task.spawn(function()
+        pcall(function()
+            player.CharacterRemoving:Wait()
+            player.CharacterAdded:Wait()
+            task.wait(2)
+        end)
+        balloonDebounce = false
+    end)
+    break
+end
+end
+end
+end
+end
+end
+end
+end))
+
+
+local function getHRP()
+local char = player.Character
+if not char then return nil end
+return char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("UpperTorso")
+end
+
+
+local function getClosestLocation()
+local character = player.Character
+if not character or not character:FindFirstChild("HumanoidRootPart") then return locations[1] end
+local currentPos = character.HumanoidRootPart.Position
+local closestDist, closestIndex = math.huge, 1
+for i, location in ipairs(locations) do
+local dist = (currentPos - location).Magnitude
+if dist < closestDist then closestDist = dist closestIndex = i end
+end
+currentTargetIndex = closestIndex
+return locations[closestIndex]
+end
+
+
+local function getPlotSpawnLocation()
+if workspace:FindFirstChild("Plots") then
+for _, plot in pairs(workspace.Plots:GetChildren()) do
+local plotSign = plot:FindFirstChild("PlotSign")
+if plotSign then
+local yourBase = plotSign:FindFirstChild("YourBase")
+if yourBase and yourBase:IsA("BillboardGui") and yourBase.Enabled then
+local spawn = plot:FindFirstChild("Spawn")
+if spawn and spawn:IsA("BasePart") then return spawn.Position end
+end
+end
+end
+end
+return Vector3.new(-348, -7, 114)
+end
+
+
+local function tp(position)
+local character = player.Character
+if not character or not character:FindFirstChild("HumanoidRootPart") then return end
+character.HumanoidRootPart.CFrame = CFrame.new(position)
+end
+
+
+local function equipFlyingCarpet()
+local character = player.Character
+if character and character:FindFirstChild("Humanoid") then
+local backpack = player.Backpack
+if backpack and backpack:FindFirstChild("Flying Carpet") then
+if not character:FindFirstChild("Flying Carpet") then
+character.Humanoid:EquipTool(backpack["Flying Carpet"])
+end
+end
+end
+end
+
+
+-- ═══════════════════════════════════════════════════════════
+--  PLOT SNIPE
+-- ═══════════════════════════════════════════════════════════
+
+
+local function getAdjacentPlot()
+local Plots = workspace:FindFirstChild("Plots")
+if not Plots then return nil end
+
+local tpDestination = getClosestLocation()
+
+local best, bestDist = nil, math.huge
+for _, plot in pairs(Plots:GetChildren()) do
+if not plot:GetAttribute("Tier") then continue end
+local sign = plot:FindFirstChild("PlotSign")
+if sign then
+local yb = sign:FindFirstChild("YourBase")
+if yb and yb:IsA("BillboardGui") and yb.Enabled then continue end
+end
+local spawn = plot:FindFirstChild("Spawn")
+if spawn and spawn:IsA("BasePart") then
+local dist = (spawn.Position - tpDestination).Magnitude
+if dist < bestDist then
+bestDist = dist
+best = plot
+end
+end
+end
+if best then print("✅ Adjacent plot: " .. best.Name .. " (dist to TP dest: " .. math.floor(bestDist) .. ")") end
+return best
+end
+
+
+local function parseRemainingSeconds(text)
+local m, s = text:match("(%d+):(%d+)")
+if m and s then return tonumber(m) * 60 + tonumber(s) end
+local ns = text:match("(%d+)s")
+if ns then return tonumber(ns) end
+local n = tonumber(text:match("^%s*(%d+)%s*$"))
+if n then return n end
+return math.huge
+end
+
+
+local function useGiantPotion()
+local character = player.Character
+if not character then return end
+local humanoid = character:FindFirstChild("Humanoid")
+if not humanoid then return end
+local backpack = player:FindFirstChild("Backpack")
+if not backpack then return end
+local giantPotion = backpack:FindFirstChild("Giant Potion")
+if not giantPotion then return end
+if not character:FindFirstChild("Giant Potion") then humanoid:EquipTool(giantPotion) end
+if giantPotion:IsA("Tool") then
+local remote = giantPotion:FindFirstChild("Remote") or giantPotion:FindFirstChild("Activate")
+if remote then
+if remote:IsA("RemoteEvent") or remote:IsA("BindableEvent") then firesignal(remote.OnClientEvent) end
+else
+pcall(function() giantPotion:Activate() end)
+end
+end
+end
+
+
+local function isMyPlot(plot)
+local sign = plot:FindFirstChild("PlotSign")
+if sign then
+local yourBase = sign:FindFirstChild("YourBase")
+if yourBase and yourBase:IsA("BillboardGui") and yourBase.Enabled then return true end
+end
+return false
+end
+
+
+local function findPromptInPodium(podium)
+if not podium then return nil end
+local base = podium:FindFirstChild("Base")
+if not base then return nil end
+local spawn = base:FindFirstChild("Spawn")
+if not spawn then return nil end
+local attach = spawn:FindFirstChild("PromptAttachment")
+if not attach then return nil end
+for _, p in attach:GetChildren() do
+if p:IsA("ProximityPrompt") then return p end
+end
+return nil
+end
+
+
+local function getBestBrainrotPlot()
+local Plots = workspace:FindFirstChild("Plots")
+if not Plots then return nil end
+local best, maxGen = nil, -1
+for _, plot in Plots:GetChildren() do
+if plot:GetAttribute("Tier") and not isMyPlot(plot) then
+for _, child in plot:GetChildren() do
+if child:IsA("Model") and child.Name ~= "FriendPanel" and child.Name ~= "CashPad" and child.Name ~= "Model" then
+if AnimalsData[child.Name] then
+local mutation = child:GetAttribute("Mutation")
+local traitsAttr = child:GetAttribute("Traits")
+local traits = nil
+if type(traitsAttr) == "string" and traitsAttr ~= "" then
+traits = {}
+for trait in traitsAttr:gmatch("[^,]+") do table.insert(traits, trait) end
+end
+local success, generation = pcall(function() return AnimsModule:GetGeneration(child.Name, mutation, traits) end)
+if success and generation and generation > maxGen then maxGen = generation best = plot end
+end
+end
+end
+end
+end
+return best
+end
+
+
+local function FindPrompts(instance, found)
+for _, child in pairs(instance:GetChildren()) do
+if child:IsA("ProximityPrompt") then table.insert(found, child) end
+FindPrompts(child, found)
+end
+end
+
+
+local function unlockBaseFloor(targetPlot)
+if not targetPlot then return end
+local unlockFolder = targetPlot:FindFirstChild("Unlock")
+if not unlockFolder then return end
+local unlockItems = {}
+for _, item in pairs(unlockFolder:GetChildren()) do
+local pos = nil
+if item:IsA("Model") then pos = item:GetPivot().Position
+elseif item:IsA("BasePart") then pos = item.Position end
+if pos then table.insert(unlockItems, {Object = item, Height = pos.Y}) end
+end
+table.sort(unlockItems, function(a, b) return a.Height < b.Height end)
+if #unlockItems == 0 then return end
+local prompts = {}
+FindPrompts(unlockItems[1].Object, prompts)
+for _, prompt in pairs(prompts) do
+pcall(function() fireproximityprompt(prompt, 1) end)
+pcall(function() fireproximityprompt(prompt, 1, true) end)
+pcall(function()
+local connections = getconnections(prompt.Triggered)
+for _, conn in pairs(connections) do
+if conn.Function then task.spawn(conn.Function) end
+end
+end)
+end
+end
+
+
+-- ═══════════════════════════════════════════════════════════
+--  AP SPAM HELPER
+-- ═══════════════════════════════════════════════════════════
+
+
+local function fireApSpamOnNearest()
+if not adminRemote or not plotKey then return end
+local hrp = getHRP()
+if not hrp then return end
+local myPos = hrp.Position
+local closest, closestDist = nil, math.huge
+for _, p in ipairs(Players:GetPlayers()) do
+if p ~= player and p.Character then
+local phrp = p.Character:FindFirstChild("HumanoidRootPart")
+if phrp then
+local dist = (phrp.Position - myPos).Magnitude
+if dist < closestDist then closestDist = dist closest = p end
+end
+end
+end
+if closest then
+print("💥 AP on: " .. closest.Name)
+pcall(function()
+for cmd, enabled in pairs(apSpamCommands) do
+if enabled then
+adminRemote:InvokeServer(plotKey, closest, cmd)
+end
+end
+end)
+end
+end
+
+
+-- ═══════════════════════════════════════════════════════════
+--  AUTO STEAL LOOP
+-- ═══════════════════════════════════════════════════════════
+
+
+-- ═══════════════════════════════════════════════════════════
+--  SEMI INSTANT STEAL
+-- ═══════════════════════════════════════════════════════════
+
+
+local semiInProgress = false
+
+local function getMyPlotPos()
+local Plots = workspace:FindFirstChild("Plots")
+if not Plots then return nil end
+for _, plot in ipairs(Plots:GetChildren()) do
+if isMyPlot(plot) then
+local sign = plot:FindFirstChild("PlotSign")
+if sign then return sign.Position end
+local part = plot:FindFirstChildWhichIsA("BasePart")
+if part then return part.Position end
+end
+end
+return nil
+end
+
+local function isBase1()
+local pos = getMyPlotPos()
+if not pos then return true end
+local ref1 = Vector3.new(-328, -7, 157)
+local ref2 = Vector3.new(-321, -7, -31)
+return (pos - ref1).Magnitude < (pos - ref2).Magnitude
+end
+
+local function getClosestStealPodium()
+local hrp = getHRP()
+if not hrp then return nil end
+local Plots = workspace:FindFirstChild("Plots")
+if not Plots then return nil end
+local best, bestDist = nil, math.huge
+for _, plot in ipairs(Plots:GetChildren()) do
+if not plot:GetAttribute("Tier") then continue end
+if isMyPlot(plot) then continue end
+local podiums = plot:FindFirstChild("AnimalPodiums")
+if not podiums then continue end
+for _, num in ipairs({"1", "10"}) do
+local podium = podiums:FindFirstChild(num)
+if not podium then continue end
+local prompt = findPromptInPodium(podium)
+local claim = podium:FindFirstChild("Claim") and podium.Claim:FindFirstChild("Main")
+if claim and prompt and prompt.ActionText == "Steal" then
+local dist = (hrp.Position - claim.Position).Magnitude
+if dist < bestDist then
+bestDist = dist
+best = { position = claim.Position, prompt = prompt }
+end
+end
+end
+end
+return best
+end
+
+local function doSemiInstantSteal()
+if semiInProgress then return end
+semiInProgress = true
+
+local char = player.Character
+local hrp = char and char:FindFirstChild("HumanoidRootPart")
+if not hrp then semiInProgress = false; return end
+
+local base1 = isBase1()
+local target = getClosestStealPodium()
+if not target then semiInProgress = false; return end
+
+equipFlyingCarpet()
+
+task.spawn(function()
+local ping = math.max(player:GetNetworkPing() * 1000 / 1000, 0.02)
+local hop = ping + 0.1
+local finalPos = base1 and Vector3.new(-337, -5, 20) or Vector3.new(-337, -5, 100)
+
+if base1 then
+hrp.CFrame = CFrame.new(-351.49, -3, 113.72); task.wait(hop)
+hrp.CFrame = CFrame.new(-352.54, -3, 6.66); task.wait(hop)
+else
+hrp.CFrame = CFrame.new(-351.49, -3, 30.00); task.wait(hop)
+hrp.CFrame = CFrame.new(-351.49, -3, 113.72); task.wait(hop)
+end
+
+hrp.CFrame = CFrame.new(finalPos); task.wait(ping * 1.5)
+task.wait(ping)
+
+
+local p1pos = Vector3.new(-337, -5, 100)
+local p2pos = Vector3.new(-337, -5, 20)
+local g1pos = Vector3.new(-350.968, -7.300, 73.514)
+local g2pos = Vector3.new(-353.814, -7.300, 43.032)
+local d1 = (p1pos - target.position).Magnitude
+local d2 = (p2pos - target.position).Magnitude
+local greenDotPos = (d1 < d2) and g1pos or g2pos
+task.wait(ping)
+
+if giantPotionEnabled then useGiantPotion() end
+task.wait(ping)
+equipFlyingCarpet()
+
+hrp.CFrame = CFrame.new(greenDotPos); task.wait(ping)
+pcall(fireproximityprompt, target.prompt)
+task.wait(ping)
+pcall(fireproximityprompt, target.prompt)
+
+if greenDotPos == g1pos then
+workspace.CurrentCamera.CFrame = CFrame.new(-352, -5, 118)
+else
+workspace.CurrentCamera.CFrame = CFrame.new(-352, -5, 118) * CFrame.Angles(0, math.rad(180), 0)
+end
+
+local deadline = tick() + math.max(ping * 2, 0.3)
+local attr = false
+repeat
+attr = player:GetAttribute("Stealing")
+if not attr then task.wait(0.03) end
+until attr or tick() > deadline
+
+if attr then
+if apSpamOnStealEnabled then
+fireApSpamOnNearest()
+end
+
+if autoWalkEnabled then
+local walkTarget
+if base1 then
+walkTarget = Vector3.new(-341.34, -5.6, 104.48)
+else
+walkTarget = Vector3.new(-341, -5.85, 16.07)
+end
+local currentSpeed = giantPotionEnabled and giantSpeed or normalSpeed
+task.spawn(function()
+while true do
+task.wait()
+local c = player.Character
+if not c then break end
+local r = c:FindFirstChild("HumanoidRootPart")
+if not r then break end
+local diff = Vector3.new(walkTarget.X - r.Position.X, 0, walkTarget.Z - r.Position.Z)
+if diff.Magnitude < 3 then break end
+local dir = diff.Unit
+r.AssemblyLinearVelocity = Vector3.new(dir.X * currentSpeed, r.AssemblyLinearVelocity.Y, dir.Z * currentSpeed)
+end
+end)
+end
+end
+
+semiInProgress = false
+end)
+end
+
+
+-- ═══════════════════════════════════════════════════════════
+--  BEAM
+-- ═══════════════════════════════════════════════════════════
+
+
+local function createBeam()
+if currentBeam then currentBeam:Destroy() currentBeam = nil end
+if targetPart then targetPart:Destroy() targetPart = nil end
+local character = player.Character
+if not character or not character:FindFirstChild("HumanoidRootPart") then return end
+local targetPos = getClosestLocation()
+currentBeam = Instance.new("Beam")
+currentBeam.Name = SCRIPT_ID
+local attachment0 = Instance.new("Attachment")
+local attachment1 = Instance.new("Attachment")
+targetPart = Instance.new("Part")
+targetPart.Name = SCRIPT_ID
+targetPart.Size = Vector3.new(0.1, 0.1, 0.1)
+targetPart.Position = targetPos
+targetPart.Transparency = 1
+targetPart.CanCollide = false
+targetPart.Anchored = true
+targetPart.Parent = workspace
+attachment0.Parent = character.HumanoidRootPart
+attachment1.Parent = targetPart
+currentBeam.Attachment0 = attachment0
+currentBeam.Attachment1 = attachment1
+currentBeam.Color = ColorSequence.new(Color3.fromRGB(255, 220, 50))
+currentBeam.Width0 = 2.5
+currentBeam.Width1 = 2.5
+currentBeam.Texture = "rbxassetid://446111271"
+currentBeam.TextureLength = 3
+currentBeam.TextureSpeed = 1.5
+currentBeam.LightEmission = 1
+currentBeam.Brightness = 8
+currentBeam.Parent = workspace
+local pe = Instance.new("ParticleEmitter", targetPart)
+pe.Color = ColorSequence.new(Color3.fromRGB(255, 220, 50))
+pe.Texture = "rbxassetid://242295402"
+pe.Rate = 50
+pe.Lifetime = NumberRange.new(1.5, 2.5)
+pe.Speed = NumberRange.new(3, 7)
+pe.Size = NumberSequence.new(0.8, 1.5)
+pe.Enabled = true
+end
+
+
+local function removeBeam()
+if currentBeam then currentBeam:Destroy() currentBeam = nil end
+if targetPart then targetPart:Destroy() targetPart = nil end
+end
+
+
+local function teleportWithTool()
+local character = player.Character
+if not character or not character:FindFirstChild("Humanoid") then return end
+local hrp = character:FindFirstChild("HumanoidRootPart")
+if hrp then hrp.CFrame = CFrame.new(getClosestLocation()) end
+end
+
+
+local function toggleSystem()
+isEnabled = not isEnabled
+if isEnabled then
+createBeam()
+if beamUpdateConnection then beamUpdateConnection:Disconnect() end
+beamUpdateConnection = RunService.Heartbeat:Connect(function()
+if isEnabled and targetPart then targetPart.Position = getClosestLocation() end
+end)
+if proximityConnection then proximityConnection:Disconnect() end
+proximityConnection = ProximityPromptService.PromptButtonHoldBegan:Connect(function(prompt, playerWhoTriggered)
+if playerWhoTriggered ~= player then return end
+local text = ((prompt.Name or "") .. " " .. (prompt.ObjectText or "") .. " " .. (prompt.ActionText or "")):lower()
+if not string.find(text, "steal") then return end
+local startTime = tick()
+while tick() - startTime < 1.40 do task.wait() end
+if giantPotionEnabled then
+local character = player.Character
+if character then
+local humanoid = character:FindFirstChild("Humanoid")
+local backpack = player:FindFirstChild("Backpack")
+if humanoid and backpack then
+local giantPotion = backpack:FindFirstChild("Giant Potion")
+if giantPotion then
+if not character:FindFirstChild("Giant Potion") then humanoid:EquipTool(giantPotion) end
+if giantPotion:IsA("Tool") then
+local remote = giantPotion:FindFirstChild("Remote") or giantPotion:FindFirstChild("Activate")
+if remote then
+if remote:IsA("RemoteEvent") or remote:IsA("BindableEvent") then firesignal(remote.OnClientEvent) end
+else pcall(function() giantPotion:Activate() end) end
+end
+end
+end
+end
+end
+ProximityPromptService.PromptTriggered:Wait()
+equipFlyingCarpet()
+teleportWithTool()
+end)
+else
+removeBeam()
+if beamUpdateConnection then beamUpdateConnection:Disconnect() beamUpdateConnection = nil end
+if proximityConnection then proximityConnection:Disconnect() proximityConnection = nil end
+end
+end
+
+
+local function toggleSpeedBoost()
+speedBoostEnabled = not speedBoostEnabled
+if speedConnection then speedConnection:Disconnect() speedConnection = nil end
+if speedBoostEnabled then
+speedConnection = RunService.Heartbeat:Connect(function()
+local character = player.Character
+if not character then return end
+local humanoid = character:FindFirstChildOfClass('Humanoid')
+local hrp = character:FindFirstChild('HumanoidRootPart')
+if not humanoid or not hrp then return end
+local currentSpeed = giantPotionEnabled and giantSpeed or normalSpeed
+local moveDir = humanoid.MoveDirection
+if moveDir.Magnitude > 0 then
+hrp.AssemblyLinearVelocity = Vector3.new(moveDir.X * currentSpeed, hrp.AssemblyLinearVelocity.Y, moveDir.Z * currentSpeed)
+end
+end)
+end
+return speedBoostEnabled
+end
+
+
+local Remote = game:GetService("ReplicatedStorage").Packages.Net["RE/NotificationService/Notify"]
+local function Notify(Message, Duration, Type)
+local finalMessage = Message
+if Type == "Rainbow" then finalMessage = "<rainbow>" .. Message .. "</rainbow>" end
+firesignal(Remote.OnClientEvent, finalMessage, Duration, "Sounds.Sfx.Success")
+end
+
+
+local function activateReset()
+local FFlags = {
+GameNetPVHeaderRotationalVelocityZeroCutoffExponent = -5000, LargeReplicatorWrite5 = true,
+LargeReplicatorEnabled9 = true, AngularVelociryLimit = 360,
+TimestepArbiterVelocityCriteriaThresholdTwoDt = 2147483646, S2PhysicsSenderRate = 15000,
+DisableDPIScale = true, MaxDataPacketPerSend = 2147483647, PhysicsSenderMaxBandwidthBps = 20000,
+TimestepArbiterHumanoidLinearVelThreshold = 21, MaxMissedWorldStepsRemembered = -2147483648,
+PlayerHumanoidPropertyUpdateRestrict = true, SimDefaultHumanoidTimestepMultiplier = 0,
+StreamJobNOUVolumeLengthCap = 2147483647, DebugSendDistInSteps = -2147483648,
+GameNetDontSendRedundantNumTimes = 1, CheckPVLinearVelocityIntegrateVsDeltaPositionThresholdPercent = 1,
+CheckPVDifferencesForInterpolationMinVelThresholdStudsPerSecHundredth = 1,
+LargeReplicatorSerializeRead3 = true, ReplicationFocusNouExtentsSizeCutoffForPauseStuds = 2147483647,
+CheckPVCachedVelThresholdPercent = 10, CheckPVDifferencesForInterpolationMinRotVelThresholdRadsPerSecHundredth = 1,
+GameNetPVHeaderLinearVelocityZeroCutoffExponent = -5000, InterpolationFrameVelocityThresholdMillionth = 5,
+InterpolationFrameRotVelocityThresholdMillionth = 5, CheckPVCachedRotVelThresholdPercent = 10,
+WorldStepMax = 30, InterpolationFramePositionThresholdMillionth = 5,
+TimestepArbiterHumanoidTurningVelThreshold = 1, SimOwnedNOUCountThresholdMillionth = 2147483647,
+NextGenReplicatorEnabledWrite4 = true, TimestepArbiterOmegaThou = 1073741823,
+MaxAcceptableUpdateDelay = 1, LargeReplicatorSerializeWrite4 = true
+}
+for name, value in pairs(FFlags) do pcall(function() setfflag(tostring(name), tostring(value)) end) end
+local function respawnar(plr)
+local char = plr.Character
+if char then
+local hum = char:FindFirstChildWhichIsA('Humanoid')
+if hum then hum:ChangeState(Enum.HumanoidStateType.Dead) end
+char:ClearAllChildren()
+local newChar = Instance.new('Model')
+newChar.Parent = workspace
+plr.Character = newChar
+task.wait()
+plr.Character = char
+newChar:Destroy()
+end
+end
+task.wait(0.5)
+respawnar(player)
+end
+
+
+local function saveKeybind(keyCode)
+tpBrainrotKeybind = keyCode
+keybindDisplayText = keyCode.Name
+lastKeybindSetTime = tick()
+pcall(function()
+if syn and syn.crypt then writefile("UctHub_Keybind.txt", tostring(keyCode.Value)) end
+end)
+end
+
+
+local function loadKeybind()
+pcall(function()
+if syn and syn.crypt and isfile and isfile("UctHub_Keybind.txt") then
+local keyValue = tonumber(readfile("UctHub_Keybind.txt"))
+if keyValue then
+for _, key in pairs(Enum.KeyCode:GetEnumItems()) do
+if key.Value == keyValue then tpBrainrotKeybind = key keybindDisplayText = key.Name break end
+end
+end
+end
+end)
+end
+
+
+-- Load config before anything else
+loadConfig()
+
+
+-- ═══════════════════════════════════════════════════════════
+--  FRIEND PLOT SCANNER
+-- ═══════════════════════════════════════════════════════════
+
+local function updateBillboard(plot, isAllowed)
+local billboard = plot:FindFirstChild("FriendStatusTag")
+if not billboard then
+billboard = Instance.new("BillboardGui", plot)
+billboard.Name = "FriendStatusTag"
+billboard.Size = UDim2.new(0, 150, 0, 40)
+billboard.StudsOffset = Vector3.new(0, 14, 0)
+billboard.AlwaysOnTop = true
+
+local lbl = Instance.new("TextLabel", billboard)
+lbl.Name = "StatusLabel"
+lbl.Size = UDim2.new(1, 0, 1, 0)
+lbl.BackgroundTransparency = 1
+lbl.Font = Enum.Font.LuckiestGuy
+lbl.TextSize = 18
+
+local stroke = Instance.new("UIStroke", lbl)
+stroke.Thickness = 2.5
+stroke.Color = Color3.new(0, 0, 0)
+
+local target = plot:FindFirstChild("FriendPanel") or plot:FindFirstChildWhichIsA("BasePart")
+billboard.Adornee = target
+end
+
+local label = billboard:FindFirstChild("StatusLabel")
+if label then
+label.Text = isAllowed and "FRIENDS: ON" or "FRIENDS: OFF"
+label.TextColor3 = isAllowed and Color3.fromRGB(0, 255, 127) or Color3.fromRGB(255, 40, 40)
+end
+end
+
+local function scanFriendPlots()
+if not tpOnFriendsAllowEnabled then return end
+
+-- Only check the adjacent plot (same one Auto TP On Unlock uses)
+local adjPlot = getAdjacentPlot()
+if not adjPlot then return end
+
+local panel = adjPlot:FindFirstChild("FriendPanel")
+if panel then
+local imageLabel = panel:FindFirstChild("Main", true)
+if imageLabel then
+imageLabel = imageLabel:FindFirstChild("ImageLabel", true)
+end
+
+if imageLabel then
+local isAllowed = (imageLabel.Image == OPENED_ID)
+local wasAllowed = plotStates[adjPlot]
+
+updateBillboard(adjPlot, isAllowed)
+
+-- Trigger TP when:
+-- 1. Plot becomes allowed (OFF -> ON transition)
+-- 2. Plot is already allowed and we just enabled the feature (wasAllowed is nil)
+if isAllowed and (not wasAllowed or wasAllowed == nil) then
+if tick() - lastFriendTpTime >= friendTpCooldown then
+lastFriendTpTime = tick()
+plotStates[adjPlot] = isAllowed
+print("🟢 Adjacent plot " .. adjPlot.Name .. " friends allowed! Auto-TPing...")
+task.wait(0.5)
+doSemiInstantSteal()
+return
+end
+end
+
+plotStates[adjPlot] = isAllowed
+end
+end
+end
+
+-- Start friend plot scanner
+task.spawn(function()
+while true do
+scanFriendPlots()
+task.wait(0.1)
+end
+end)
+
+
+task.spawn(function()
+if not player.Character then player.CharacterAdded:Wait() end
+local snipeTpFired = false
+while true do
+task.wait(0.25)
+if not autoTpOnUnlockEnabled then snipeTpFired = false continue end
+
+local adjPlot = getAdjacentPlot()
+if not adjPlot then
+print("⚠️ Auto TP On Unlock: no adjacent plot found")
+snipeTpFired = false continue
+end
+local char = player.Character
+local hrp = char and char:FindFirstChild("HumanoidRootPart")
+local spawn = adjPlot:FindFirstChild("Spawn")
+local dist = (hrp and spawn) and (spawn.Position - hrp.Position).Magnitude or nil
+print("🔍 Auto TP On Unlock: scanning " .. adjPlot.Name .. " (dist=" .. (dist and tostring(math.floor(dist)) or "?") .. ")")
+
+local timerText = nil
+for _, obj in ipairs(adjPlot:GetDescendants()) do
+if obj:IsA("TextLabel") then
+local t = obj.Text or ""
+if t ~= "" and (t:match("^%d+s$") or t:match("^%d+:%d+$") or t:match("^%s*%d+%s*$")) then
+timerText = t
+local parts = {}
+local cur = obj
+while cur and cur ~= workspace do
+table.insert(parts, 1, '["' .. cur.Name .. '"]')
+cur = cur.Parent
+end
+print("🎯 Timer label: workspace" .. table.concat(parts) .. ' = "' .. t .. '"')
+break
+end
+end
+end
+if not timerText then snipeTpFired = false continue end
+
+local secs = parseRemainingSeconds(timerText)
+if secs <= 1 and not snipeTpFired then
+snipeTpFired = true
+print("🎯 Auto TP On Unlock FIRING: " .. adjPlot.Name)
+task.spawn(function()
+task.wait(1.3)
+doSemiInstantSteal()
+task.wait(10) -- cooldown before allowing next fire
+snipeTpFired = false
+end)
+elseif secs > 3 then
+snipeTpFired = false
+end
+end
+end)
+
+
+local function checkKeybind(input, gameProcessed)
+if gameProcessed then return end
+if isSettingKeybind then return end
+if tick() - lastKeybindSetTime < keybindCooldown then return end
+if input.KeyCode == tpBrainrotKeybind then doSemiInstantSteal() end
+end
+
+
+-- ═══════════════════════════════════════════════════════════
+--  UI - COMPACT SQUARE WITH TABS
+-- ═══════════════════════════════════════════════════════════
+
+
+local GOLD = Color3.fromRGB(255, 215, 0)
+local DARK  = Color3.fromRGB(10, 10, 10)
+local MID   = Color3.fromRGB(18, 18, 18)
+local BTN   = Color3.fromRGB(20, 20, 20)
+local ON    = Color3.fromRGB(30, 60, 20)
+local ON_S  = Color3.fromRGB(100, 220, 60)
+local OFF_S = Color3.fromRGB(50, 50, 50)
+
+
+-- Container
+local CONTAINER_W = 210
+local CONTAINER_H = 494   -- full height (11 buttons)
+local CONTAINER_H_MIN = 260 -- minimized (5 buttons)
+local HEADER_H = 44
+local TABBAR_H = 26
+local CONTENT_Y = HEADER_H + TABBAR_H  -- 70
+local BTN_H = 34
+local BTN_STEP = 42
+
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "SF_Hub_Semi"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.Parent = PlayerGui
+
+
+local Container = Instance.new("Frame")
+Container.Size = UDim2.new(0, CONTAINER_W, 0, CONTAINER_H)
+Container.Position = UDim2.new(0.5, -CONTAINER_W/2, 0.5, -CONTAINER_H/2)
+Container.BackgroundColor3 = DARK
+Container.BorderSizePixel = 0
+Container.Parent = ScreenGui
+Instance.new("UICorner", Container).CornerRadius = UDim.new(0, 8)
+
+
+-- Animated gold border
+local OuterBorder = Instance.new("Frame")
+OuterBorder.Size = UDim2.new(1, 8, 1, 8)
+OuterBorder.Position = UDim2.new(0, -4, 0, -4)
+OuterBorder.BackgroundTransparency = 1
+OuterBorder.BorderSizePixel = 0
+OuterBorder.ZIndex = 0
+OuterBorder.Parent = Container
+Instance.new("UICorner", OuterBorder).CornerRadius = UDim.new(0, 10)
+
+
+local OuterStroke = Instance.new("UIStroke")
+OuterStroke.Color = GOLD
+OuterStroke.Thickness = 2.5
+OuterStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+OuterStroke.Parent = OuterBorder
+
+
+local OuterGradient = Instance.new("UIGradient")
+OuterGradient.Color = ColorSequence.new({
+ColorSequenceKeypoint.new(0.0, Color3.fromRGB(255, 215, 0)),
+ColorSequenceKeypoint.new(0.2, Color3.fromRGB(0, 0, 0)),
+ColorSequenceKeypoint.new(0.4, Color3.fromRGB(255, 215, 0)),
+ColorSequenceKeypoint.new(0.6, Color3.fromRGB(0, 0, 0)),
+ColorSequenceKeypoint.new(0.8, Color3.fromRGB(255, 215, 0)),
+ColorSequenceKeypoint.new(1.0, Color3.fromRGB(0, 0, 0))
+})
+OuterGradient.Parent = OuterStroke
+
+
+task.spawn(function()
+while ScreenGui.Parent do OuterGradient.Rotation = OuterGradient.Rotation + 2 task.wait(0.02) end
+end)
+
+
+local InnerStroke = Instance.new("UIStroke", Container)
+InnerStroke.Color = GOLD
+InnerStroke.Thickness = 1.2
+InnerStroke.Transparency = 0.35
+
+
+-- Header
+local Header = Instance.new("Frame")
+Header.Size = UDim2.new(1, 0, 0, HEADER_H)
+Header.BackgroundColor3 = MID
+Header.BorderSizePixel = 0
+Header.Parent = Container
+Instance.new("UICorner", Header).CornerRadius = UDim.new(0, 8)
+
+
+local HeaderMask = Instance.new("Frame", Header)
+HeaderMask.Size = UDim2.new(1, 0, 0, 10)
+HeaderMask.Position = UDim2.new(0, 0, 1, -10)
+HeaderMask.BackgroundColor3 = MID
+HeaderMask.BorderSizePixel = 0
+HeaderMask.ZIndex = Header.ZIndex
+
+
+local Title = Instance.new("TextLabel", Header)
+Title.Size = UDim2.new(1, -44, 0, 20)
+Title.Position = UDim2.new(0, 8, 0, 6)
+Title.BackgroundTransparency = 1
+Title.Text = "SF Hub Semi"
+Title.TextColor3 = GOLD
+Title.Font = Enum.Font.GothamBold
+Title.TextSize = 18
+Title.TextXAlignment = Enum.TextXAlignment.Left
+
+
+local TitleShine = Instance.new("UIGradient", Title)
+TitleShine.Color = ColorSequence.new({
+ColorSequenceKeypoint.new(0.0, Color3.fromRGB(200, 170, 0)),
+ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 255, 200)),
+ColorSequenceKeypoint.new(1.0, Color3.fromRGB(200, 170, 0))
+})
+task.spawn(function() while ScreenGui.Parent do TitleShine.Rotation = TitleShine.Rotation + 4 task.wait(0.03) end end)
+
+
+local DiscordLink = Instance.new("TextLabel", Header)
+DiscordLink.Size = UDim2.new(1, -44, 0, 14)
+DiscordLink.Position = UDim2.new(0, 8, 0, 26)
+DiscordLink.BackgroundTransparency = 1
+DiscordLink.Text = "discord.gg/PTXPzbmvyA"
+DiscordLink.TextColor3 = GOLD
+DiscordLink.Font = Enum.Font.GothamBold
+DiscordLink.TextSize = 10
+DiscordLink.TextXAlignment = Enum.TextXAlignment.Left
+
+
+local MinimizeButton = Instance.new("TextButton", Header)
+MinimizeButton.Size = UDim2.new(0, 26, 0, 26)
+MinimizeButton.Position = UDim2.new(1, -34, 0, 9)
+MinimizeButton.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+MinimizeButton.Text = "-"
+MinimizeButton.TextColor3 = GOLD
+MinimizeButton.Font = Enum.Font.GothamBold
+MinimizeButton.TextSize = 18
+MinimizeButton.AutoButtonColor = false
+Instance.new("UICorner", MinimizeButton).CornerRadius = UDim.new(0, 6)
+local MinimizeStroke = Instance.new("UIStroke", MinimizeButton)
+MinimizeStroke.Color = GOLD
+MinimizeStroke.Thickness = 1.2
+MinimizeStroke.Transparency = 0.4
+
+
+MinimizeButton.MouseEnter:Connect(function()
+TweenService:Create(MinimizeStroke, TweenInfo.new(0.15), {Transparency = 0}):Play()
+TweenService:Create(MinimizeButton, TweenInfo.new(0.15), {BackgroundColor3 = Color3.fromRGB(40,40,40)}):Play()
+end)
+MinimizeButton.MouseLeave:Connect(function()
+TweenService:Create(MinimizeStroke, TweenInfo.new(0.15), {Transparency = 0.4}):Play()
+TweenService:Create(MinimizeButton, TweenInfo.new(0.15), {BackgroundColor3 = Color3.fromRGB(30,30,30)}):Play()
+end)
+
+
+local HeaderGlow = Instance.new("Frame", Header)
+HeaderGlow.Size = UDim2.new(0.9, 0, 0, 1)
+HeaderGlow.Position = UDim2.new(0.05, 0, 1, -1)
+HeaderGlow.BackgroundColor3 = GOLD
+HeaderGlow.BorderSizePixel = 0
+Instance.new("UICorner", HeaderGlow).CornerRadius = UDim.new(1, 0)
+
+
+-- Tab bar
+local TabBar = Instance.new("Frame", Container)
+TabBar.Size = UDim2.new(1, 0, 0, TABBAR_H)
+TabBar.Position = UDim2.new(0, 0, 0, HEADER_H)
+TabBar.BackgroundColor3 = Color3.fromRGB(14, 14, 14)
+TabBar.BorderSizePixel = 0
+
+
+local function makeTabButton(text, xScale, xOffset)
+local tb = Instance.new("TextButton", TabBar)
+tb.Size = UDim2.new(xScale, -1, 1, 0)
+tb.Position = UDim2.new(1 - xScale, xOffset, 0, 0)
+tb.BackgroundColor3 = Color3.fromRGB(14, 14, 14)
+tb.AutoButtonColor = false
+tb.Text = text
+tb.TextColor3 = Color3.fromRGB(180, 180, 180)
+tb.Font = Enum.Font.GothamBold
+tb.TextSize = 11
+tb.BorderSizePixel = 0
+local underline = Instance.new("Frame", tb)
+underline.Size = UDim2.new(1, 0, 0, 2)
+underline.Position = UDim2.new(0, 0, 1, -2)
+underline.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+underline.BorderSizePixel = 0
+return tb, underline
+end
+
+
+local TabMainBtn, TabMainUnder = makeTabButton("Main", 0.5, 0)
+TabMainBtn.Position = UDim2.new(0, 0, 0, 0)
+local TabSettingsBtn, TabSettingsUnder = makeTabButton("Settings", 0.5, 1)
+TabSettingsBtn.Position = UDim2.new(0.5, 1, 0, 0)
+
+
+-- Content frames
+local MainFrame = Instance.new("Frame", Container)
+MainFrame.Size = UDim2.new(1, -16, 0, CONTAINER_H - CONTENT_Y - 8)
+MainFrame.Position = UDim2.new(0, 8, 0, CONTENT_Y + 4)
+MainFrame.BackgroundTransparency = 1
+MainFrame.Visible = true
+
+
+local SettingsFrame = Instance.new("Frame", Container)
+SettingsFrame.Size = UDim2.new(1, -16, 0, CONTAINER_H - CONTENT_Y - 8)
+SettingsFrame.Position = UDim2.new(0, 8, 0, CONTENT_Y + 4)
+SettingsFrame.BackgroundTransparency = 1
+SettingsFrame.Visible = false
+
+
+local activeTab = "Main"
+
+
+local function setTab(tab)
+activeTab = tab
+MainFrame.Visible = (tab == "Main")
+SettingsFrame.Visible = (tab == "Settings")
+if tab == "Main" then
+TabMainBtn.TextColor3 = GOLD
+TabMainUnder.BackgroundColor3 = GOLD
+TabSettingsBtn.TextColor3 = Color3.fromRGB(150, 150, 150)
+TabSettingsUnder.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+else
+TabSettingsBtn.TextColor3 = GOLD
+TabSettingsUnder.BackgroundColor3 = GOLD
+TabMainBtn.TextColor3 = Color3.fromRGB(150, 150, 150)
+TabMainUnder.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+end
+end
+
+
+setTab("Main") -- default
+
+
+TabMainBtn.MouseButton1Click:Connect(function() setTab("Main") end)
+TabSettingsBtn.MouseButton1Click:Connect(function() setTab("Settings") end)
+
+
+-- ─── Button factories ───────────────────────────────────────
+
+
+local function createBtn(parent, text, yPos, isWarning)
+local Button = Instance.new("TextButton", parent)
+Button.Size = UDim2.new(1, 0, 0, BTN_H)
+Button.Position = UDim2.new(0, 0, 0, yPos)
+Button.BackgroundColor3 = isWarning and Color3.fromRGB(35, 26, 0) or BTN
+Button.AutoButtonColor = false
+Button.Text = ""
+Button.ClipsDescendants = true
+Instance.new("UICorner", Button).CornerRadius = UDim.new(0, 6)
+local Stroke = Instance.new("UIStroke", Button)
+Stroke.Color = isWarning and Color3.fromRGB(200, 160, 0) or OFF_S
+Stroke.Thickness = 1.2
+Stroke.Transparency = 0.4
+local Hover = Instance.new("Frame", Button)
+Hover.Size = UDim2.new(1, 0, 1, 0)
+Hover.BackgroundColor3 = GOLD
+Hover.BackgroundTransparency = 1
+Hover.BorderSizePixel = 0
+Hover.ZIndex = Button.ZIndex + 1
+Instance.new("UICorner", Hover).CornerRadius = UDim.new(0, 6)
+local Label = Instance.new("TextLabel", Button)
+Label.Size = UDim2.new(1, -12, 1, 0)
+Label.Position = UDim2.new(0, 12, 0, 0)
+Label.BackgroundTransparency = 1
+Label.Text = text
+Label.TextColor3 = GOLD
+Label.Font = Enum.Font.GothamBold
+Label.TextSize = 12
+Label.TextXAlignment = Enum.TextXAlignment.Left
+Label.ZIndex = Button.ZIndex + 2
+Button.MouseEnter:Connect(function()
+TweenService:Create(Hover, TweenInfo.new(0.15), {BackgroundTransparency = 0.92}):Play()
+TweenService:Create(Stroke, TweenInfo.new(0.15), {Color = GOLD, Thickness = 1.5, Transparency = 0}):Play()
+end)
+Button.MouseLeave:Connect(function()
+TweenService:Create(Hover, TweenInfo.new(0.15), {BackgroundTransparency = 1}):Play()
+TweenService:Create(Stroke, TweenInfo.new(0.15), {Color = isWarning and Color3.fromRGB(200,160,0) or OFF_S, Thickness = 1.2, Transparency = 0.4}):Play()
+end)
+return Button, Label, Stroke
+end
+
+
+local function applyToggleVisual(btn, stroke, label, state, onText, offText)
+if state then
+label.Text = onText
+btn.BackgroundColor3 = ON
+stroke.Color = ON_S
+stroke.Transparency = 0
+else
+label.Text = offText
+btn.BackgroundColor3 = BTN
+stroke.Color = OFF_S
+stroke.Transparency = 0.4
+end
+end
+
+
+-- ─── Main tab buttons ───────────────────────────────────────
+
+
+local ResetButton,  ResetLabel,  ResetStroke  = createBtn(MainFrame, "Activate (RESET)", 0)
+ResetButton.Visible = false
+ResetButton.Size = UDim2.new(0,0,0,0)
+
+-- ⚡ Insta Reset button at top (slot 0)
+local InstaResetBtn, InstaResetLabel, InstaResetStroke = createBtn(MainFrame, "Insta Reset", 0)
+
+local GPBtn,        GPLabel,     GPStroke     = createBtn(MainFrame, "Giant Potion: OFF", BTN_STEP)
+local APBtn,        APLabel,     APStroke     = createBtn(MainFrame, "AP Spam On Steal: OFF", BTN_STEP*2)
+local BalloonBtn,   BalloonLabel, BalloonStroke = createBtn(MainFrame, "Auto Reset On Balloon: OFF", BTN_STEP*3)
+local SpeedBtn,     SpeedLabel,  SpeedStroke  = createBtn(MainFrame, "Speed Boost: OFF", BTN_STEP*4)
+
+
+-- TP Brainrot with keybind
+local TpBtn = Instance.new("TextButton", MainFrame)
+TpBtn.Size = UDim2.new(1, 0, 0, BTN_H)
+TpBtn.Position = UDim2.new(0, 0, 0, BTN_STEP*5)
+TpBtn.BackgroundColor3 = BTN
+TpBtn.AutoButtonColor = false
+TpBtn.Text = ""
+TpBtn.ClipsDescendants = true
+Instance.new("UICorner", TpBtn).CornerRadius = UDim.new(0, 6)
+local TpStroke = Instance.new("UIStroke", TpBtn)
+TpStroke.Color = OFF_S
+TpStroke.Thickness = 1.2
+TpStroke.Transparency = 0.4
+local TpHover = Instance.new("Frame", TpBtn)
+TpHover.Size = UDim2.new(1, 0, 1, 0)
+TpHover.BackgroundColor3 = GOLD
+TpHover.BackgroundTransparency = 1
+TpHover.BorderSizePixel = 0
+TpHover.ZIndex = TpBtn.ZIndex + 1
+Instance.new("UICorner", TpHover).CornerRadius = UDim.new(0, 6)
+local TpLabel = Instance.new("TextLabel", TpBtn)
+TpLabel.Size = UDim2.new(0.58, -12, 1, 0)
+TpLabel.Position = UDim2.new(0, 12, 0, 0)
+TpLabel.BackgroundTransparency = 1
+TpLabel.Text = "TP To Brainrot"
+TpLabel.TextColor3 = GOLD
+TpLabel.Font = Enum.Font.GothamBold
+TpLabel.TextSize = 12
+TpLabel.TextXAlignment = Enum.TextXAlignment.Left
+TpLabel.ZIndex = TpBtn.ZIndex + 2
+local KeybindBox = Instance.new("TextButton", TpBtn)
+KeybindBox.Size = UDim2.new(0.38, -8, 0.62, 0)
+KeybindBox.Position = UDim2.new(0.60, 4, 0.19, 0)
+KeybindBox.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+KeybindBox.AutoButtonColor = false
+KeybindBox.Text = ""
+KeybindBox.ZIndex = TpBtn.ZIndex + 2
+Instance.new("UICorner", KeybindBox).CornerRadius = UDim.new(0, 5)
+local KbStroke = Instance.new("UIStroke", KeybindBox)
+KbStroke.Color = GOLD
+KbStroke.Thickness = 1.2
+KbStroke.Transparency = 0.35
+local KbLabel = Instance.new("TextLabel", KeybindBox)
+KbLabel.Size = UDim2.new(1, 0, 1, 0)
+KbLabel.BackgroundTransparency = 1
+KbLabel.Text = keybindDisplayText
+KbLabel.TextColor3 = GOLD
+KbLabel.Font = Enum.Font.GothamBold
+KbLabel.TextSize = 11
+KbLabel.ZIndex = KeybindBox.ZIndex + 1
+TpBtn.MouseEnter:Connect(function()
+TweenService:Create(TpHover, TweenInfo.new(0.15), {BackgroundTransparency = 0.92}):Play()
+TweenService:Create(TpStroke, TweenInfo.new(0.15), {Color = GOLD, Thickness = 1.5, Transparency = 0}):Play()
+TweenService:Create(KbStroke, TweenInfo.new(0.15), {Transparency = 0}):Play()
+end)
+TpBtn.MouseLeave:Connect(function()
+TweenService:Create(TpHover, TweenInfo.new(0.15), {BackgroundTransparency = 1}):Play()
+TweenService:Create(TpStroke, TweenInfo.new(0.15), {Color = OFF_S, Thickness = 1.2, Transparency = 0.4}):Play()
+TweenService:Create(KbStroke, TweenInfo.new(0.15), {Transparency = 0.35}):Play()
+end)
+KeybindBox.MouseButton1Click:Connect(function()
+if isSettingKeybind then return end
+isSettingKeybind = true
+KbLabel.Text = "..."
+KeybindBox.BackgroundColor3 = Color3.fromRGB(30, 30, 0)
+local connection
+connection = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+if gameProcessed then return end
+if input.KeyCode ~= Enum.KeyCode.Unknown then
+isSettingKeybind = false
+connection:Disconnect()
+lastKeybindSetTime = tick()
+saveKeybind(input.KeyCode)
+KbLabel.Text = keybindDisplayText
+KeybindBox.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+TweenService:Create(KeybindBox, TweenInfo.new(0.1), {BackgroundColor3 = Color3.fromRGB(100, 200, 50)}):Play()
+task.wait(0.2)
+TweenService:Create(KeybindBox, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(15, 15, 15)}):Play()
+end
+end)
+task.delay(5, function()
+if connection then connection:Disconnect() end
+if isSettingKeybind then
+isSettingKeybind = false
+KbLabel.Text = keybindDisplayText
+KeybindBox.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+end
+end)
+end)
+TpBtn.MouseButton1Click:Connect(function()
+local mouse = Players.LocalPlayer:GetMouse()
+local p = KeybindBox.AbsolutePosition
+local s = KeybindBox.AbsoluteSize
+if mouse.X >= p.X and mouse.X <= p.X + s.X and mouse.Y >= p.Y and mouse.Y <= p.Y + s.Y then return end
+doSemiInstantSteal()
+end)
+
+
+local AutoUnlockBtn, AutoUnlockLabel, AutoUnlockStroke = createBtn(MainFrame, "Auto TP On Unlock: OFF", BTN_STEP*6)
+local FriendsAllowBtn, FriendsAllowLabel, FriendsAllowStroke = createBtn(MainFrame, "TP On Friends Allow: OFF", BTN_STEP*7)
+local AutoWalkBtn, AutoWalkLabel, AutoWalkStroke = createBtn(MainFrame, "Auto Walk: OFF", BTN_STEP*8)
+local UnlockBtn, UnlockLabel, UnlockStroke = createBtn(MainFrame, "Unlock Base", BTN_STEP*9, true)
+
+
+-- ─── Settings tab ───────────────────────────────────────────
+
+
+local function createInputRow(parent, labelText, yPos, isGiantMode)
+local Row = Instance.new("Frame", parent)
+Row.Size = UDim2.new(1, 0, 0, BTN_H)
+Row.Position = UDim2.new(0, 0, 0, yPos)
+Row.BackgroundColor3 = BTN
+Instance.new("UICorner", Row).CornerRadius = UDim.new(0, 6)
+local RS = Instance.new("UIStroke", Row)
+RS.Color = OFF_S
+RS.Thickness = 1.2
+RS.Transparency = 0.4
+local Lbl = Instance.new("TextLabel", Row)
+Lbl.Size = UDim2.new(0.58, -12, 1, 0)
+Lbl.Position = UDim2.new(0, 12, 0, 0)
+Lbl.BackgroundTransparency = 1
+Lbl.Text = labelText
+Lbl.TextColor3 = GOLD
+Lbl.Font = Enum.Font.GothamBold
+Lbl.TextSize = 12
+Lbl.TextXAlignment = Enum.TextXAlignment.Left
+local Input = Instance.new("TextBox", Row)
+Input.Size = UDim2.new(0.35, -8, 0.62, 0)
+Input.Position = UDim2.new(0.62, 4, 0.19, 0)
+Input.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+Input.Text = isGiantMode and tostring(giantSpeed) or tostring(normalSpeed)
+Input.TextColor3 = GOLD
+Input.Font = Enum.Font.GothamBold
+Input.TextSize = 11
+Input.PlaceholderText = "28-34"
+Instance.new("UICorner", Input).CornerRadius = UDim.new(0, 5)
+local IS = Instance.new("UIStroke", Input)
+IS.Color = GOLD
+IS.Thickness = 1.2
+IS.Transparency = 0.35
+Input.FocusLost:Connect(function()
+local num = tonumber(Input.Text)
+if num and num >= 10 and num <= 100 then
+if isGiantMode then giantSpeed = num else normalSpeed = num end
+saveConfig()
+TweenService:Create(Input, TweenInfo.new(0.1), {BackgroundColor3 = Color3.fromRGB(25, 55, 15)}):Play()
+task.wait(0.3)
+TweenService:Create(Input, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(15, 15, 15)}):Play()
+else
+Input.Text = isGiantMode and tostring(giantSpeed) or tostring(normalSpeed)
+TweenService:Create(Input, TweenInfo.new(0.1), {BackgroundColor3 = Color3.fromRGB(55, 15, 15)}):Play()
+task.wait(0.3)
+TweenService:Create(Input, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(15, 15, 15)}):Play()
+end
+end)
+return Row, Lbl, Input
+end
+
+
+local NormalRow, _, NormalInput = createInputRow(SettingsFrame, "Speed (Normal):", 0, false)
+local GiantRow,  _, GiantInput  = createInputRow(SettingsFrame, "Speed (Giant):", BTN_STEP, true)
+
+-- â”€â”€â”€ AP Spam command selector â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+local apCmdLabel = Instance.new("TextLabel", SettingsFrame)
+apCmdLabel.Size = UDim2.new(1, 0, 0, 16)
+apCmdLabel.Position = UDim2.new(0, 0, 0, BTN_STEP * 2 + 4)
+apCmdLabel.BackgroundTransparency = 1
+apCmdLabel.Text = "AP Spam Commands:"
+apCmdLabel.TextColor3 = GOLD
+apCmdLabel.Font = Enum.Font.GothamBold
+apCmdLabel.TextSize = 11
+apCmdLabel.TextXAlignment = Enum.TextXAlignment.Left
+
+local AP_CMD_LIST = {"rocket","ragdoll","balloon","inverse","nightvision","jail","control","tiny","jumpscare","morph"}
+local AP_CMD_BTN_H = 26
+local AP_CMD_STEP  = 30
+local AP_CMD_START = BTN_STEP * 2 + 22
+local apCmdBtns = {}
+
+for i, cmd in ipairs(AP_CMD_LIST) do
+local col = (i - 1) % 2
+local row = math.floor((i - 1) / 2)
+local xOff = col == 0 and 0 or 0.51
+local xSz  = 0.48
+local yPos = AP_CMD_START + row * AP_CMD_STEP
+local Btn = Instance.new("TextButton", SettingsFrame)
+Btn.Size = UDim2.new(xSz, 0, 0, AP_CMD_BTN_H)
+Btn.Position = UDim2.new(xOff, 0, 0, yPos)
+Btn.BackgroundColor3 = apSpamCommands[cmd] and ON or BTN
+Btn.AutoButtonColor = false
+Btn.Text = ""
+Btn.ClipsDescendants = true
+Instance.new("UICorner", Btn).CornerRadius = UDim.new(0, 5)
+local BStroke = Instance.new("UIStroke", Btn)
+BStroke.Color = apSpamCommands[cmd] and ON_S or OFF_S
+BStroke.Thickness = 1.2
+BStroke.Transparency = apSpamCommands[cmd] and 0 or 0.4
+local BLbl = Instance.new("TextLabel", Btn)
+BLbl.Size = UDim2.new(1, -6, 1, 0)
+BLbl.Position = UDim2.new(0, 6, 0, 0)
+BLbl.BackgroundTransparency = 1
+BLbl.Text = cmd
+BLbl.TextColor3 = GOLD
+BLbl.Font = Enum.Font.GothamBold
+BLbl.TextSize = 10
+BLbl.TextXAlignment = Enum.TextXAlignment.Left
+BLbl.ZIndex = Btn.ZIndex + 1
+apCmdBtns[cmd] = {btn = Btn, stroke = BStroke, label = BLbl}
+Btn.MouseButton1Click:Connect(function()
+apSpamCommands[cmd] = not apSpamCommands[cmd]
+applyToggleVisual(Btn, BStroke, BLbl, apSpamCommands[cmd], cmd, cmd)
+saveConfig()
+end)
+end
+
+
+
+-- ─── Progress bar ───────────────────────────────────────────
+
+
+
+
+-- ─── Drag ───────────────────────────────────────────────────
+
+
+local dragging, dragStart, startPos = false, nil, nil
+Container.InputBegan:Connect(function(input)
+if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+dragging = true dragStart = input.Position startPos = Container.Position
+end
+end)
+UserInputService.InputChanged:Connect(function(input)
+if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+local delta = input.Position - dragStart
+Container.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+end
+end)
+UserInputService.InputEnded:Connect(function(input)
+if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+dragging = false
+end
+end)
+
+
+local function setupMobile(button)
+button.InputBegan:Connect(function(input)
+if input.UserInputType == Enum.UserInputType.Touch then
+ContextActionService:BindActionAtPriority("PreventDrag", function() return Enum.ContextActionResult.Sink end, false, Enum.ContextActionPriority.High.Value, Enum.UserInputType.Touch)
+end
+end)
+button.InputEnded:Connect(function(input)
+if input.UserInputType == Enum.UserInputType.Touch then ContextActionService:UnbindAction("PreventDrag") end
+end)
+end
+
+
+setupMobile(ResetButton) setupMobile(InstaResetBtn) setupMobile(GPBtn) setupMobile(APBtn)
+setupMobile(BalloonBtn) setupMobile(SpeedBtn) setupMobile(TpBtn) setupMobile(AutoWalkBtn)
+setupMobile(KeybindBox) setupMobile(UnlockBtn) setupMobile(AutoUnlockBtn) setupMobile(FriendsAllowBtn)
+
+
+-- ─── Minimize ───────────────────────────────────────────────
+
+
+local isMinimized = false
+MinimizeButton.MouseButton1Click:Connect(function()
+isMinimized = not isMinimized
+if isMinimized then
+TabBar.Visible = false
+MainFrame.Visible = false
+SettingsFrame.Visible = false
+-- mini 4-button strip: InstaReset, Speed, Tp, Unlock
+InstaResetBtn.Parent = Container
+InstaResetBtn.Position = UDim2.new(0, 8, 0, HEADER_H + 6)
+InstaResetBtn.Size = UDim2.new(1, -16, 0, BTN_H)
+SpeedBtn.Parent = Container
+SpeedBtn.Position = UDim2.new(0, 8, 0, HEADER_H + 6 + BTN_STEP)
+SpeedBtn.Size = UDim2.new(1, -16, 0, BTN_H)
+TpBtn.Parent = Container
+TpBtn.Position = UDim2.new(0, 8, 0, HEADER_H + 6 + BTN_STEP*2)
+TpBtn.Size = UDim2.new(1, -16, 0, BTN_H)
+AutoWalkBtn.Parent = Container
+AutoWalkBtn.Position = UDim2.new(0, 8, 0, HEADER_H + 6 + BTN_STEP*3)
+AutoWalkBtn.Size = UDim2.new(1, -16, 0, BTN_H)
+UnlockBtn.Parent = Container
+UnlockBtn.Position = UDim2.new(0, 8, 0, HEADER_H + 6 + BTN_STEP*4)
+UnlockBtn.Size = UDim2.new(1, -16, 0, BTN_H)
+MinimizeButton.Text = "+"
+TweenService:Create(Container, TweenInfo.new(0.25, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Size = UDim2.new(0, CONTAINER_W, 0, CONTAINER_H_MIN)}):Play()
+else
+TabBar.Visible = true
+InstaResetBtn.Parent = MainFrame
+InstaResetBtn.Position = UDim2.new(0, 0, 0, 0)
+InstaResetBtn.Size = UDim2.new(1, 0, 0, BTN_H)
+SpeedBtn.Parent = MainFrame
+SpeedBtn.Position = UDim2.new(0, 0, 0, BTN_STEP*4)
+SpeedBtn.Size = UDim2.new(1, 0, 0, BTN_H)
+TpBtn.Parent = MainFrame
+TpBtn.Position = UDim2.new(0, 0, 0, BTN_STEP*5)
+TpBtn.Size = UDim2.new(1, 0, 0, BTN_H)
+AutoUnlockBtn.Parent = MainFrame
+AutoUnlockBtn.Position = UDim2.new(0, 0, 0, BTN_STEP*6)
+AutoUnlockBtn.Size = UDim2.new(1, 0, 0, BTN_H)
+FriendsAllowBtn.Parent = MainFrame
+FriendsAllowBtn.Position = UDim2.new(0, 0, 0, BTN_STEP*7)
+FriendsAllowBtn.Size = UDim2.new(1, 0, 0, BTN_H)
+AutoWalkBtn.Parent = MainFrame
+AutoWalkBtn.Position = UDim2.new(0, 0, 0, BTN_STEP*8)
+AutoWalkBtn.Size = UDim2.new(1, 0, 0, BTN_H)
+UnlockBtn.Parent = MainFrame
+UnlockBtn.Position = UDim2.new(0, 0, 0, BTN_STEP*9)
+UnlockBtn.Size = UDim2.new(1, 0, 0, BTN_H)
+setTab(activeTab)
+MinimizeButton.Text = "-"
+TweenService:Create(Container, TweenInfo.new(0.25, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Size = UDim2.new(0, CONTAINER_W, 0, CONTAINER_H)}):Play()
+end
+end)
+
+
+-- ─── Button click handlers ───────────────────────────────────
+
+
+-- Auto activate on spawn (only after character fully loaded)
+task.spawn(function()
+if not player.Character or not player.Character:FindFirstChild("HumanoidRootPart") then
+player.CharacterAdded:Wait()
+task.wait(1)
+end
+activateReset()
+end)
+
+
+InstaResetBtn.MouseButton1Click:Connect(function()
+executeinsta_reset()
+executeinsta_reset()
+end)
+
+
+GPBtn.MouseButton1Click:Connect(function()
+giantPotionEnabled = not giantPotionEnabled
+applyToggleVisual(GPBtn, GPStroke, GPLabel, giantPotionEnabled, "Giant Potion: ON", "Giant Potion: OFF")
+saveConfig()
+end)
+
+
+APBtn.MouseButton1Click:Connect(function()
+apSpamOnStealEnabled = not apSpamOnStealEnabled
+applyToggleVisual(APBtn, APStroke, APLabel, apSpamOnStealEnabled, "AP Spam On Steal: ON", "AP Spam On Steal: OFF")
+saveConfig()
+end)
+
+
+BalloonBtn.MouseButton1Click:Connect(function()
+autoResetOnBalloon = not autoResetOnBalloon
+applyToggleVisual(BalloonBtn, BalloonStroke, BalloonLabel, autoResetOnBalloon, "Auto Reset On Balloon: ON", "Auto Reset On Balloon: OFF")
+saveConfig()
+end)
+
+AutoWalkBtn.MouseButton1Click:Connect(function()
+    autoWalkEnabled = not autoWalkEnabled
+    applyToggleVisual(AutoWalkBtn, AutoWalkStroke, AutoWalkLabel, autoWalkEnabled, "Auto Walk: ON", "Auto Walk: OFF")
+    saveConfig()
+end)
+
+SpeedBtn.MouseButton1Click:Connect(function()
+local newState = toggleSpeedBoost()
+applyToggleVisual(SpeedBtn, SpeedStroke, SpeedLabel, newState, "Speed Boost: ON", "Speed Boost: OFF")
+saveConfig()
+end)
+
+
+UnlockBtn.MouseButton1Click:Connect(function()
+local bestPlot = getBestBrainrotPlot()
+if bestPlot then unlockBaseFloor(bestPlot) end
+end)
+
+
+AutoUnlockBtn.MouseButton1Click:Connect(function()
+autoTpOnUnlockEnabled = not autoTpOnUnlockEnabled
+applyToggleVisual(AutoUnlockBtn, AutoUnlockStroke, AutoUnlockLabel, autoTpOnUnlockEnabled, "Auto TP On Unlock: ON", "Auto TP On Unlock: OFF")
+saveConfig()
+end)
+
+
+FriendsAllowBtn.MouseButton1Click:Connect(function()
+tpOnFriendsAllowEnabled = not tpOnFriendsAllowEnabled
+applyToggleVisual(FriendsAllowBtn, FriendsAllowStroke, FriendsAllowLabel, tpOnFriendsAllowEnabled, "TP On Friends Allow: ON", "TP On Friends Allow: OFF")
+saveConfig()
+end)
+
+
+-- ─── Apply loaded config to UI visuals ───────────────────────
+
+
+applyToggleVisual(GPBtn, GPStroke, GPLabel, giantPotionEnabled, "Giant Potion: ON", "Giant Potion: OFF")
+applyToggleVisual(APBtn, APStroke, APLabel, apSpamOnStealEnabled, "AP Spam On Steal: ON", "AP Spam On Steal: OFF")
+applyToggleVisual(BalloonBtn, BalloonStroke, BalloonLabel, autoResetOnBalloon, "Auto Reset On Balloon: ON", "Auto Reset On Balloon: OFF")
+applyToggleVisual(SpeedBtn, SpeedStroke, SpeedLabel, speedBoostEnabled, "Speed Boost: ON", "Speed Boost: OFF")
+applyToggleVisual(AutoUnlockBtn, AutoUnlockStroke, AutoUnlockLabel, autoTpOnUnlockEnabled, "Auto TP On Unlock: ON", "Auto TP On Unlock: OFF")
+applyToggleVisual(FriendsAllowBtn, FriendsAllowStroke, FriendsAllowLabel, tpOnFriendsAllowEnabled, "TP On Friends Allow: ON", "TP On Friends Allow: OFF")
+applyToggleVisual(AutoWalkBtn, AutoWalkStroke, AutoWalkLabel, autoWalkEnabled, "Auto Walk: ON", "Auto Walk: OFF")
+
+
+-- Restore speed boost loop if it was saved ON
+if speedBoostEnabled then
+speedConnection = RunService.Heartbeat:Connect(function()
+local character = player.Character
+if not character then return end
+local humanoid = character:FindFirstChildOfClass('Humanoid')
+local hrp = character:FindFirstChild('HumanoidRootPart')
+if not humanoid or not hrp then return end
+local currentSpeed = giantPotionEnabled and giantSpeed or normalSpeed
+local moveDir = humanoid.MoveDirection
+if moveDir.Magnitude > 0 then
+hrp.AssemblyLinearVelocity = Vector3.new(moveDir.X * currentSpeed, hrp.AssemblyLinearVelocity.Y, moveDir.Z * currentSpeed)
+end
+end)
+end
+
+
+NormalInput.Text = tostring(normalSpeed)
+GiantInput.Text = tostring(giantSpeed)
+
+
+-- ─── Final connections ───────────────────────────────────────
+
+
+loadKeybind()
+UserInputService.InputBegan:Connect(checkKeybind)
+
+
+player.CharacterAdded:Connect(function()
+task.wait(0.25)
+if isEnabled then createBeam() end
+end)
+player.CharacterRemoving:Connect(function() removeBeam() end)
+
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+if not gameProcessed and input.KeyCode == Enum.KeyCode.Escape then
+if beamUpdateConnection then beamUpdateConnection:Disconnect() beamUpdateConnection = nil end
+if proximityConnection then proximityConnection:Disconnect() proximityConnection = nil end
+removeBeam()
+ScreenGui:Destroy()
+end
+end)
+
+
+Notify("SF Hub Semi Loaded!", 5, "zebra")
