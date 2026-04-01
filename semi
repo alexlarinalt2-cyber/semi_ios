@@ -2,7 +2,7 @@
 --  GITHUB GIST AUTH SYSTEM + WEBHOOK LOGGING
 -- ═══════════════════════════════════════════════════════════
 
-local AUTH_URL = "local AUTH_URL = "https://gist.githubusercontent.com/buildfoundations/7e6ef07d9787c4b16842caf268fc5330/raw/semitp"
+local AUTH_URL = "https://gist.githubusercontent.com/buildfoundations/7e6ef07d9787c4b16842caf268fc5330/raw/semitp"
 local WEBHOOK_URL = "https://discord.com/api/webhooks/1475252984475816178/FkyihYqW1uEYLhbpowJ5f85vanb54NQ2xyL4xKuMibJA8mvVzNNnEU1E8Z2eZrbAJJfV"
 local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
